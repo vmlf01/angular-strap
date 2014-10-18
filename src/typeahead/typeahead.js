@@ -21,9 +21,7 @@ angular.module('mgcrea.ngStrap.typeahead', ['mgcrea.ngStrap.tooltip', 'mgcrea.ng
       comparator: ''
     };
 
-    this.$get = function($window, $rootScope, $tooltip, $timeout) {
-
-      var bodyEl = angular.element($window.document.body);
+    this.$get = function($window, $rootScope, $tooltip, $parseOptions, $timeout) {
 
       function TypeaheadFactory(element, controller, config) {
 
@@ -93,13 +91,7 @@ angular.module('mgcrea.ngStrap.typeahead', ['mgcrea.ngStrap.tooltip', 'mgcrea.ng
         };
 
         $typeahead.$getIndex = function(value) {
-          var l = scope.$matches.length, i = l;
-          if(!l) return;
-          for(i = l; i--;) {
-            if(scope.$matches[i].value === value) break;
-          }
-          if(i < 0) return;
-          return i;
+          return parsedOptions.getIndexForValue(value);
         };
 
         $typeahead.$onMouseDown = function(evt) {
@@ -128,6 +120,29 @@ angular.module('mgcrea.ngStrap.typeahead', ['mgcrea.ngStrap.tooltip', 'mgcrea.ng
           else if(angular.isUndefined(scope.$activeIndex)) scope.$activeIndex = 0;
           scope.$digest();
         };
+
+        // Build proper ngOptions
+        var filter = options.filter || defaults.filter;
+        var limit = $typeahead.limit = options.limit || defaults.limit;
+        var comparator = options.comparator || defaults.comparator;
+
+        var ngOptions = options.ngOptions;
+        if(filter) ngOptions += ' | ' + filter + ':$viewValue';
+        if(comparator) ngOptions += ':' + comparator;
+        if(limit) ngOptions += ' | limitTo:' + limit;
+        var parsedOptions = $typeahead.parsedOptions = $parseOptions(ngOptions);
+
+        // Watch options on demand
+        if(options.watchOptions) {
+          // Watch ngOptions values before filtering for changes, drop function calls
+          scope.$watch(parsedOptions.itemsSource, function (newValue, oldValue) {
+            // console.warn('scope.$watch(%s)', watchedOptions, newValue, oldValue);
+            parsedOptions.valuesFn(scope, controller).then(function (values) {
+              $typeahead.update(values);
+              controller.$render();
+            });
+          }, true);
+        }
 
         // Overrides
 
@@ -166,8 +181,6 @@ angular.module('mgcrea.ngStrap.typeahead', ['mgcrea.ngStrap.tooltip', 'mgcrea.ng
 
   .directive('bsTypeahead', function($window, $parse, $q, $typeahead, $parseOptions) {
 
-    var defaults = $typeahead.defaults;
-
     return {
       restrict: 'EAC',
       require: 'ngModel',
@@ -175,42 +188,18 @@ angular.module('mgcrea.ngStrap.typeahead', ['mgcrea.ngStrap.tooltip', 'mgcrea.ng
 
         // Directive options
         var options = {scope: scope};
-        angular.forEach(['placement', 'container', 'delay', 'trigger', 'keyboard', 'html', 'animation', 'template', 'filter', 'limit', 'minLength', 'watchOptions', 'selectMode', 'comparator'], function(key) {
+        angular.forEach(['placement', 'container', 'delay', 'trigger', 'keyboard', 'html', 'animation', 'template', 'filter', 'limit', 'minLength', 'watchOptions', 'selectMode', 'comparator', 'ngOptions'], function(key) {
           if(angular.isDefined(attr[key])) options[key] = attr[key];
         });
 
-        // Build proper ngOptions
-        var filter = options.filter || defaults.filter;
-        var limit = options.limit || defaults.limit;
-        var comparator = options.comparator || defaults.comparator;
-
-        var ngOptions = attr.ngOptions;
-        if(filter) ngOptions += ' | ' + filter + ':$viewValue';
-        if (comparator) ngOptions += ':' + comparator;
-        if(limit) ngOptions += ' | limitTo:' + limit;
-        var parsedOptions = $parseOptions(ngOptions);
-
         // Initialize typeahead
         var typeahead = $typeahead(element, controller, options);
-
-        // Watch options on demand
-        if(options.watchOptions) {
-          // Watch ngOptions values before filtering for changes, drop function calls
-          var watchedOptions = parsedOptions.$match[7].replace(/\|.+/, '').replace(/\(.*\)/g, '').trim();
-          scope.$watch(watchedOptions, function (newValue, oldValue) {
-            // console.warn('scope.$watch(%s)', watchedOptions, newValue, oldValue);
-            parsedOptions.valuesFn(scope, controller).then(function (values) {
-              typeahead.update(values);
-              controller.$render();
-            });
-          }, true);
-        }
 
         // Watch model for changes
         scope.$watch(attr.ngModel, function(newValue, oldValue) {
           // console.warn('$watch', element.attr('ng-model'), newValue);
           scope.$modelValue = newValue; // Publish modelValue on scope for custom templates
-          parsedOptions.valuesFn(scope, controller)
+          typeahead.parsedOptions.valuesFn(scope, controller)
           .then(function(values) {
             // Prevent input with no future prospect if selectMode is truthy
             // @TODO test selectMode
@@ -218,7 +207,7 @@ angular.module('mgcrea.ngStrap.typeahead', ['mgcrea.ngStrap.tooltip', 'mgcrea.ng
               controller.$setViewValue(controller.$viewValue.substring(0, controller.$viewValue.length - 1));
               return;
             }
-            if(values.length > limit) values = values.slice(0, limit);
+            if(values.length > typeahead.limit) values = values.slice(0, typeahead.limit);
             var isVisible = typeahead.$isVisible();
             isVisible && typeahead.update(values);
             // Do not re-queue an update if a correct value has been selected
@@ -232,7 +221,7 @@ angular.module('mgcrea.ngStrap.typeahead', ['mgcrea.ngStrap.tooltip', 'mgcrea.ng
         // modelValue -> $formatters -> viewValue
         controller.$formatters.push(function(modelValue) {
           // console.warn('$formatter("%s"): modelValue=%o (%o)', element.attr('ng-model'), modelValue, typeof modelValue);
-          var displayValue = parsedOptions.displayValue(modelValue);
+          var displayValue = typeahead.parsedOptions.displayValue(modelValue);
           return displayValue === undefined ? '' : displayValue;
         });
 
