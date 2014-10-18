@@ -17,6 +17,7 @@ angular.module('mgcrea.ngStrap.helpers.parseOptions', [])
         // Common vars
         var options = angular.extend({}, defaults, config);
         $parseOptions.$values = [];
+        $parseOptions.itemsSource = '';
 
         // Private vars
         var match, displayFn, valueName, keyName, groupByFn, valueFn, valuesFn;
@@ -29,6 +30,7 @@ angular.module('mgcrea.ngStrap.helpers.parseOptions', [])
           groupByFn = $parse(match[3] || ''),
           valueFn = $parse(match[2] ? match[1] : valueName),
           valuesFn = $parse(match[7]);
+          $parseOptions.itemsSource = match[7].replace(/\|.+/, '').replace(/\(.*\)/g, '').trim();
         };
 
         $parseOptions.valuesFn = function(scope, controller) {
@@ -37,6 +39,33 @@ angular.module('mgcrea.ngStrap.helpers.parseOptions', [])
             $parseOptions.$values = values ? parseValues(values, scope) : {};
             return $parseOptions.$values;
           });
+        };
+
+        $parseOptions.getLabelForItem = function(item){
+          var scope = {};
+          scope[valueName] = item;
+          return displayFn(scope);
+        };
+
+        $parseOptions.getValueForItem = function(item){
+          var scope = {};
+          scope[valueName] = item;
+          return valueFn(scope);
+        };
+
+        $parseOptions.getLabelForValue = function(value){
+          var item = getItem('value', value, true);
+          return item ? item.label : undefined;
+        };
+
+        $parseOptions.getValueForLabel = function(label){
+          var item = getItem('label', label, false);
+          return item ? item.value : undefined;
+        };
+
+        $parseOptions.getIndexForValue = function(value){
+          var item = getItem('value', value, true);
+          return item ? item.index : undefined;
         };
 
         $parseOptions.displayValue = function(modelValue) {
@@ -55,6 +84,23 @@ angular.module('mgcrea.ngStrap.helpers.parseOptions', [])
             value = valueFn(scope, locals);
             return {label: label, value: value, index: index};
           });
+        }
+
+        function getItem(prop, value, isCaseSensitive) {
+          var itemsCount = $parseOptions.$values.length, i = itemsCount;
+          // no values to match, so return undefined
+          if(!itemsCount) return undefined;
+
+          for(i = itemsCount; i--;) {
+            if((!isCaseSensitive && angular.equals(angular.lowercase($parseOptions.$values[i][prop]), angular.lowercase(value))) ||
+              angular.equals($parseOptions.$values[i][prop], value)) break;
+          }
+
+          // no item found with prop value equal to value, return undefined
+          if(i < 0) return undefined;
+
+          // return found item
+          return $parseOptions.$values[i];
         }
 
         $parseOptions.init();
